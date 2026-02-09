@@ -1,0 +1,36 @@
+# === Credentials & Secrets ===
+.env
+shorts.json
+credentials.json
+*.pem
+*.key
+
+# === Data / Media Assets (large binary files) ===
+data/
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+*.egg
+
+# === macOS ===
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# === Logs ===
+*.log
