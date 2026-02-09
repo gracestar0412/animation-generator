@@ -452,6 +452,12 @@ Return JSON with this EXACT structure:
 }}
 
 Generate 20+ hashtags and 20+ tags. Make everything engaging and SEO-optimized.
+
+=== YouTube SEO Best Practices (MUST FOLLOW) ===
+TITLE: Use action/journey phrasing ("From Shepherd to King"), include "Full Movie" or "3D Animated", under 70 chars, most searchable keyword first.
+DESCRIPTION: ALWAYS include "Bible Stories for Kids and Adults" in subtitle for search breadth. Include hook paragraph, WHAT YOU'LL DISCOVER section, CHAPTERS timestamps, KEY BIBLE VERSES (2-3 actual verses), SCRIPTURE REFERENCE, and CTA.
+HASHTAGS (critical): Only include hashtags DIRECTLY relevant to the story. DO NOT add character names or themes absent from the story (e.g., no #Jesus if Jesus isn't in the story). Include format (#3danimation #animatedbiblemovie), audience (#biblestoriesforkids #sundayschool), trending (#faithoverfear) tags. 15-25 total, all lowercase.
+TAGS: Include both short and long-tail keywords, including "Bible Stories for Kids", "Bible Stories for Adults", "Full Movie".
 """
 
         config = types.GenerateContentConfig(

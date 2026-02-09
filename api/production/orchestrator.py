@@ -1355,23 +1355,52 @@ async def generate_project_metadata(project_slug: str):
     Project: {project_title}
     Scripture: {scripture_ref}
     Total chapters: {len(chapters)}
-    Chapter list: {json.dumps([{"title": c["title"], "key_events": c.get("key_events","")} for c in chapters], ensure_ascii=False)}
+    Chapter list: {json.dumps([{{"title": c["title"], "key_events": c.get("key_events","")}} for c in chapters], ensure_ascii=False)}
 
-    Return JSON:
+    === YouTube SEO Best Practices ===
+    TITLE RULES:
+    - Use action/journey phrasing: "From Shepherd to King", "Rise of...", NOT static labels
+    - Include format hint: "Full Movie", "3D Animated", "Stunning"
+    - Keep under 70 characters
+    - Put the most searchable keyword first (e.g., "David and Goliath")
+
+    DESCRIPTION RULES:
+    - Start with subtitle line: "Full Movie | 3D Animated Bible Story | [Journey phrase] | Bible Stories for Kids and Adults"
+    - ALWAYS include "Bible Stories for Kids and Adults" for search breadth
+    - Include a hook paragraph (2-3 sentences, emotional, what the viewer will experience)
+    - Include "🎬 WHAT YOU'LL DISCOVER IN THIS MOVIE:" section
+    - Include chapter timestamps section with 📖 CHAPTERS header
+    - Include "✝️ KEY BIBLE VERSES" section with 2-3 actual verses and references
+    - Include "📚 SCRIPTURE REFERENCE" section
+    - End with CTA: "If this video blessed you, please LIKE 👍, COMMENT 💬, and SUBSCRIBE 🔔"
+
+    HASHTAG RULES:
+    - Only include hashtags DIRECTLY relevant to the actual story content
+    - DO NOT include character names or themes that don't appear in the story
+      (e.g., do NOT add #Jesus if Jesus doesn't appear in the story)
+    - Include format tags: #3danimation, #animatedbiblemovie, #christiananimation
+    - Include audience tags: #biblestoriesforkids, #sundayschool
+    - Include trending variations: #davidvsgoliath, #faithoverfear
+    - Include channel-style tags: #bibleanimation, #biblemovies
+    - 15-25 hashtags total, all lowercase
+
+    TAGS (separate from hashtags — used for YouTube internal search):
+    - Include both short and long-tail keywords
+    - Include "Bible Stories for Kids", "Bible Stories for Adults", "Full Movie"
+
+    Return JSON with this EXACT structure:
     {{
-      "titles": [
-        "Engaging title 1 (hook viewers, include emoji)",
-        "Engaging title 2 (different angle)",
-        "Engaging title 3 (curiosity-driven)"
-      ],
-      "thumbnail_prompts": [
-        "Detailed image prompt for thumbnail 1 (dramatic scene, bold text overlay concept)",
-        "Detailed image prompt for thumbnail 2 (different key moment)",
-        "Detailed image prompt for thumbnail 3 (emotional character close-up)"
-      ],
-      "description": "YouTube description (500-800 chars, include timestamps placeholder, CTA, SEO keywords)",
-      "hashtags": ["#hashtag1", "#hashtag2", "..."],
-      "tags": ["keyword1", "keyword2", "..."]
+      "title": "Main title (best one, action/journey phrasing)",
+      "alt_titles": ["Alternative title 1", "Alternative title 2", "Alternative title 3"],
+      "description_header": "Subtitle line for description",
+      "description_hook": "2-3 sentence emotional hook paragraph",
+      "what_youll_discover": "🎬 WHAT YOU'LL DISCOVER IN THIS MOVIE:\\n[detailed paragraph about key story moments]",
+      "chapters_section": "📖 CHAPTERS\\n00:00 Introduction\\n...",
+      "key_bible_verses": [{{"verse": "...", "reference": "Book Chapter:Verse"}}],
+      "scripture_reference": "📚 SCRIPTURE REFERENCE\\n[description]",
+      "cta": "CTA text with emojis",
+      "hashtags": ["#hashtag1", "#hashtag2"],
+      "tags": ["keyword1", "keyword2"]
     }}
     """
 
@@ -1487,14 +1516,14 @@ async def generate_project_metadata(project_slug: str):
 
     # Print summary
     logger.info("\n📋 === Metadata Summary ===")
-    if project_meta.get("titles"):
-        logger.info("🎬 Project titles:")
-        for i, t in enumerate(project_meta["titles"], 1):
-            logger.info(f"   {i}. {t}")
-    if intro_meta.get("titles"):
-        logger.info("🎥 Introduction titles:")
-        for i, t in enumerate(intro_meta["titles"], 1):
-            logger.info(f"   {i}. {t}")
+    if project_meta.get("title"):
+        logger.info(f"🎬 Project title: {project_meta['title']}")
+        for i, t in enumerate(project_meta.get("alt_titles", []), 1):
+            logger.info(f"   Alt {i}. {t}")
+    if intro_meta.get("title"):
+        logger.info(f"🎥 Introduction title: {intro_meta['title']}")
+        for i, t in enumerate(intro_meta.get("alt_titles", []), 1):
+            logger.info(f"   Alt {i}. {t}")
     logger.info(f"📱 Shorts: {len(all_shorts_meta)} chapters generated")
 
     return combined
