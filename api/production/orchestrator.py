@@ -1607,6 +1607,8 @@ async def main():
                         help="Auto-assemble ch00 intro from existing chapter scene videos")
     parser.add_argument("--validate-quality", action="store_true",
                         help="AI-powered visual quality analysis of all scene videos (uses Gemini 3 Flash)")
+    parser.add_argument("--generate-thumbnails", action="store_true",
+                        help="Generate 3 A/B test thumbnails + titles for project, intro, and shorts")
 
     args = parser.parse_args()
 
@@ -1840,6 +1842,116 @@ async def main():
             logger.info("")
             logger.info("✅ All checks passed! No issues found.")
 
+        return
+
+    # --- Project: Thumbnail A/B Test Generation ---
+    if args.project and args.generate_thumbnails:
+        proj = ProjectManager(args.project)
+        ai = AIClient()
+        if not ai.client:
+            logger.error("❌ AI client not available. Cannot generate thumbnails.")
+            return
+
+        chapters = proj.get_all_chapters()
+        chapter_titles = [c["title"] for c in chapters if c["index"] > 0]
+
+        # Determine which targets to generate
+        targets = []
+
+        # If --chapter is specified, only that chapter (shorts mode)
+        if args.chapter is not None:
+            ch = next((c for c in chapters if c["index"] == args.chapter), None)
+            if ch:
+                cpm = proj.get_chapter_pm(ch["index"])
+                targets.append({
+                    "type": "shorts",
+                    "title": ch["title"],
+                    "key_events": ch.get("key_events", ""),
+                    "scripture_ref": ch.get("scripture_range", ""),
+                    "output_dir": os.path.join(cpm.root, "thumbnails"),
+                    "label": f"ch{ch['index']:02d} Shorts",
+                })
+        else:
+            # Full movie
+            targets.append({
+                "type": "full_movie",
+                "title": proj.project_data.get("title", ""),
+                "key_events": ", ".join(chapter_titles),
+                "scripture_ref": proj.project_data.get("scripture_ref", ""),
+                "output_dir": os.path.join(proj.pm.root, "final", "thumbnails"),
+                "label": "Full Movie",
+                "chapter_titles": chapter_titles,
+            })
+            # Introduction (ch00)
+            ch0 = next((c for c in chapters if c["index"] == 0), None)
+            if ch0:
+                cpm0 = proj.get_chapter_pm(0)
+                targets.append({
+                    "type": "introduction",
+                    "title": proj.project_data.get("title", "") + " - Introduction",
+                    "key_events": ch0.get("key_events", ""),
+                    "scripture_ref": proj.project_data.get("scripture_ref", ""),
+                    "output_dir": os.path.join(cpm0.root, "thumbnails"),
+                    "label": "Introduction (ch00)",
+                    "chapter_titles": chapter_titles,
+                })
+
+        total = len(targets)
+        logger.info(f"🖼️ ═══ Thumbnail A/B Test Generation ═══")
+        logger.info(f"📊 Generating {total} thumbnail sets (3 variants each)")
+
+        for ti, target in enumerate(targets, 1):
+            label = target["label"]
+            output_dir = target["output_dir"]
+            os.makedirs(output_dir, exist_ok=True)
+
+            logger.info(f"\n📂 [{ti}/{total}] {label}")
+
+            # Step 1: Generate 3 concepts with Gemini
+            logger.info(f"   🧠 Generating A/B concepts...")
+            concepts = await ai.generate_thumbnail_concepts(
+                video_type=target["type"],
+                title=target["title"],
+                key_events=target["key_events"],
+                scripture_ref=target.get("scripture_ref", ""),
+                chapter_titles=target.get("chapter_titles", None),
+            )
+
+            if not concepts:
+                logger.warning(f"   ⚠️ No concepts generated for {label}")
+                continue
+
+            variant_names = ["variant_a", "variant_b", "variant_c"]
+            for vi, (concept, vname) in enumerate(zip(concepts, variant_names)):
+                logger.info(f"   🎨 [{vname}] {concept.get('hook_angle', '')}")
+                logger.info(f"      📝 Title: {concept.get('title', '')}")
+
+                # Step 2: Generate thumbnail image with Imagen
+                img_path = os.path.join(output_dir, f"{vname}.png")
+                prompt = concept.get("thumbnail_prompt", "")
+                if prompt:
+                    success = await ai.generate_thumbnail(prompt, img_path)
+                    if success:
+                        # Step 3: Composite title text overlay via Gemini
+                        overlay_text = concept.get("overlay_text", "DAVID")
+                        if overlay_text:
+                            await ai.composite_title_on_thumbnail(img_path, overlay_text)
+                            logger.info(f"      ✅ Saved with title '{overlay_text}': {img_path}")
+                        else:
+                            logger.info(f"      ✅ Saved (no overlay): {img_path}")
+                    else:
+                        logger.warning(f"      ❌ Failed to generate image")
+                else:
+                    logger.warning(f"      ⚠️ No thumbnail prompt in concept")
+
+            # Save concepts.json
+            concepts_path = os.path.join(output_dir, "concepts.json")
+            with open(concepts_path, "w", encoding="utf-8") as f:
+                json.dump(concepts, f, indent=2, ensure_ascii=False)
+            logger.info(f"   📄 Concepts saved: {concepts_path}")
+
+        logger.info(f"\n✅ Thumbnail generation complete!")
+        logger.info(f"💡 Title overlays have been automatically composited onto all thumbnails")
         return
 
     # --- Project: Visual Quality Analysis ---

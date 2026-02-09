@@ -530,6 +530,218 @@ TAGS: Include both short and long-tail keywords, including "Bible Stories for Ki
             logger.warning(f"⚠️ Image generation failed: {e}")
             return False
 
+    async def generate_thumbnail(self, prompt: str, output_path: str) -> bool:
+        """
+        Generate a 16:9 cinematic thumbnail background using Imagen 3.
+        Text overlays should be added separately (Canva/Photoshop).
+        """
+        if not self.client:
+            logger.warning("⚠️ No AI client, cannot generate thumbnail")
+            return False
+
+        from google.genai import types
+
+        logger.info(f"🖼️ Generating thumbnail → {os.path.basename(output_path)}")
+
+        try:
+            async def _call():
+                return await asyncio.to_thread(
+                    self.client.models.generate_images,
+                    model="imagen-3.0-generate-002",
+                    prompt=prompt,
+                    config=types.GenerateImagesConfig(
+                        number_of_images=1,
+                        aspect_ratio="16:9",
+                        person_generation="ALLOW_ADULT",
+                    ),
+                )
+
+            response = await self._retry_call(_call)
+
+            if response and response.generated_images:
+                image = response.generated_images[0]
+                image.image.save(output_path)
+                logger.info(f"✅ Thumbnail saved: {output_path}")
+                return True
+            else:
+                logger.warning("⚠️ No thumbnail in response")
+                return False
+
+        except Exception as e:
+            logger.warning(f"⚠️ Thumbnail generation failed: {e}")
+            return False
+
+    async def composite_title_on_thumbnail(
+        self,
+        bg_path: str,
+        title_text: str,
+        output_path: str = "",
+    ) -> bool:
+        """
+        Add bold 3D metallic title text to thumbnail using Gemini (Nano Banana Pro).
+        Sends the background image to Gemini and asks it to add cinematic 3D text
+        that integrates naturally with the scene, matching YouTube Bible animation
+        channel aesthetics (e.g., DANIEL, MOSES, SAMSON style thumbnails).
+
+        Args:
+            bg_path: Path to the background thumbnail image
+            title_text: Text to overlay (e.g., "DAVID")
+            output_path: Where to save (defaults to overwriting bg_path)
+        Returns: True if successful
+        """
+        if not self.client:
+            logger.warning("⚠️ No AI client, cannot composite title")
+            return False
+
+        from google.genai import types
+
+        if not output_path:
+            output_path = bg_path
+
+        title_text = title_text.upper().strip()
+
+        try:
+            # Read the background image
+            with open(bg_path, "rb") as f:
+                image_bytes = f.read()
+
+            image_part = types.Part.from_bytes(
+                data=image_bytes,
+                mime_type="image/png",
+            )
+
+            prompt = f"""Edit this thumbnail image by adding the word "{title_text}" as large, bold, 3D metallic text.
+
+Style requirements (MUST match this exact style):
+- VERY LARGE 3D metallic text — gold/bronze finish with realistic reflections and beveling
+- Text should take up roughly 50-70% of the image width
+- Deep shadows and strong black outline for maximum contrast
+- Text positioned in the lower-center area of the image
+- The text should look like it was rendered as part of the 3D scene with proper lighting
+- Metallic texture with highlights that match the scene's lighting direction
+- Professional YouTube Bible animation thumbnail style (like channels with millions of views)
+- The background scene must remain EXACTLY as it is — only add the text
+
+DO NOT change the background image. ONLY add the 3D metallic "{title_text}" text overlay."""
+
+            logger.info(f"🎨 Adding '{title_text}' title via Gemini → {os.path.basename(output_path)}")
+
+            # Use Nano Banana Pro (Gemini 3 Pro Image) for best quality
+            image_model = "gemini-3-pro-image-preview"
+
+            async def _call():
+                return await asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=image_model,
+                    contents=[image_part, prompt],
+                    config=types.GenerateContentConfig(
+                        response_modalities=["IMAGE", "TEXT"],
+                    ),
+                )
+
+            response = await self._retry_call(_call)
+
+            if response and response.candidates:
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, 'inline_data') and part.inline_data and part.inline_data.data:
+                        # Save the generated image
+                        with open(output_path, "wb") as f:
+                            f.write(part.inline_data.data)
+                        logger.info(f"✅ Title '{title_text}' added → {os.path.basename(output_path)}")
+                        return True
+
+            logger.warning("⚠️ No image in Gemini response")
+            return False
+
+        except Exception as e:
+            logger.warning(f"⚠️ Gemini title compositing failed: {e}")
+            return False
+
+    async def generate_thumbnail_concepts(self, video_type: str, title: str,
+                                           key_events: str, scripture_ref: str = "",
+                                           chapter_titles: list = None) -> list:
+        """
+        Generate 3 A/B test thumbnail concepts (title + image prompt) using Gemini.
+        video_type: 'full_movie', 'introduction', 'shorts'
+        Returns: [{"title": str, "thumbnail_prompt": str, "hook_angle": str}] × 3
+        """
+        if not self.client:
+            return []
+
+        from google.genai import types
+
+        chapter_context = ""
+        if chapter_titles:
+            chapter_context = f"\nChapter list: {', '.join(chapter_titles)}"
+
+        prompt = f"""You are a YouTube thumbnail strategist for a top Bible animation channel 
+(3D Pixar/Disney style, like the channels with millions of views).
+
+Video type: {video_type}
+Title: {title}
+Key events: {key_events}
+Scripture: {scripture_ref}{chapter_context}
+
+Generate 3 DIFFERENT thumbnail concepts for A/B testing. Each must have a DIFFERENT visual angle:
+
+Reference style (study these patterns):
+- BOLD character name/keyword as large 3D metallic text (gold, bronze, silver)
+- Dramatic cinematic scene behind the text
+- Golden hour / dramatic lighting / rim lighting
+- Character close-ups with intense expressions OR epic wide landscape shots
+- 16:9 aspect ratio, hyper-detailed 3D render
+
+For each variant, create:
+1. **title**: YouTube title (action/journey phrasing, under 70 chars, include "Stunning 3D Animated" or "Full Movie")
+2. **thumbnail_prompt**: Detailed Imagen prompt for the BACKGROUND image (no text, Imagen will generate)
+   - Start with "Pixar-style 3D rendered" or "Stunning 3D animated"
+   - Include specific character descriptions, scene details, lighting
+   - Must be cinematic and dramatic
+   - DO NOT include any text/words/letters in the prompt
+3. **overlay_text**: 1-2 words for BOLD text overlay on thumbnail (like "DAVID", "MOSES", "SAMSON")
+   - Short, punchy, instantly recognizable (character name or key theme)
+   - ALL CAPS
+4. **hook_angle**: Brief description of the marketing angle (1 sentence)
+
+Make each variant appeal to different viewer motivations:
+- Variant A: EPIC/ACTION (battle scene, dramatic confrontation)
+- Variant B: EMOTIONAL/CHARACTER (close-up, intimate moment, character journey)  
+- Variant C: CURIOSITY/MYSTERY (intriguing composition, prompts "what happens?")
+
+Reply ONLY with JSON array (no markdown):
+[
+  {{"title": "...", "thumbnail_prompt": "...", "overlay_text": "DAVID", "hook_angle": "..."}},
+  {{"title": "...", "thumbnail_prompt": "...", "overlay_text": "DAVID", "hook_angle": "..."}},
+  {{"title": "...", "thumbnail_prompt": "...", "hook_angle": "..."}}
+]"""
+
+        try:
+            config = types.GenerateContentConfig(
+                temperature=0.8,
+                response_mime_type="application/json",
+            )
+
+            async def _call():
+                return await asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=self.model_name,
+                    contents=[prompt],
+                    config=config,
+                )
+
+            response = await self._retry_call(_call)
+
+            if response and response.text:
+                import json as _json
+                concepts = _json.loads(response.text)
+                if isinstance(concepts, list) and len(concepts) >= 3:
+                    return concepts[:3]
+            return []
+
+        except Exception as e:
+            logger.warning(f"⚠️ Thumbnail concept generation failed: {e}")
+            return []
+
 
     # ---- Visual Quality Analysis ----
 
