@@ -485,11 +485,11 @@ python -m api.production.orchestrator --project david_and_goliath --generate-thu
 
 #### 생성 과정
 
-1. **Gemini** → 3개 컨셉 생성 (제목 + Imagen 프롬프트 + 마케팅 앵글)
-2. **Imagen 3** → 16:9 배경 이미지 생성
-3. **Gemini (Image Edit)** → 3D 메탈릭 골드 타이틀 텍스트 합성
+1. **Gemini 3 Flash** (`gemini-3-flash-preview`) → 3개 컨셉 생성 (제목 + Imagen 프롬프트 + 마케팅 앵글)
+2. **Imagen 3** (`imagen-3.0-generate-002`) → 16:9 배경 이미지 생성
+3. **Nano Banana Pro** (`gemini-3-pro-image-preview`) → 3D 메탈릭 골드 타이틀 텍스트 합성
 
-> 텍스트 합성은 `composite_title_on_thumbnail()` (Gemini 이미지 편집)으로 자동 처리. Canva/Photoshop 불필요.
+> 텍스트 합성은 `composite_title_on_thumbnail()` (Nano Banana Pro 이미지 편집)으로 자동 처리. Canva/Photoshop 불필요.
 
 ## Phase 10 — 배포 전략
 
@@ -602,9 +602,10 @@ data/projects/david_and_goliath/
 | 7b | `orchestrator --project X --chapter N --resume-chapter` | 챕터별 렌더링 (16:9) |
 | 7c | `orchestrator --project X --merge-project` | 전체 병합 + 메타데이터 |
 | 8a | `orchestrator --project X --chapter N --resume-chapter --shorts` | 챕터 풀 9:16 쇼츠 렌더링 |
-| 8b | *(큐레이션)* shorts_script.json + scene_prompts_shorts.txt 기반 | ch00 큐레이션 쇼츠 |
+| 8b | `orchestrator --project X --render-curation-shorts` | ch00 큐레이션 쇼츠 렌더링 |
 | 9a | `orchestrator --project X --generate-metadata` | YouTube 메타데이터 일괄 생성 |
-| 9b | `orchestrator --project X --generate-thumbnails` | A/B 테스트 썸네일 3종 생성 |
+| 9b | `orchestrator --project X --generate-thumbnails` | A/B 테스트 썸네일 3종 (Imagen + Nano Banana Pro) |
+| 9c | `orchestrator --project X --validate-quality` | AI 시각 품질 분석 (Gemini 3 Flash) |
 | 10 | *(배포)* 쇼츠 → 예고편 → 본편 순서로 공개 | 배포 전략 실행 |
 
 ### 유틸리티
@@ -612,6 +613,7 @@ data/projects/david_and_goliath/
 | 명령어 | 설명 |
 |--------|------|
 | `orchestrator --project X --project-status` | 프로젝트 상태 확인 |
+| `orchestrator --project X --validate-quality` | AI 시각 품질 분석 (Gemini 3 Flash) |
 | `orchestrator --char-sheet CHARACTER_ID` | 캐릭터 시트 프롬프트 출력 |
 | `orchestrator --char-json CHARACTER_ID` | 캐릭터 JSON 메타데이터 출력 |
 | `orchestrator --regen-prompts RUN_ID` | 기존 런의 프롬프트만 재생성 |

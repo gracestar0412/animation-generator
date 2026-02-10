@@ -730,17 +730,21 @@ CONSISTENCY RULES:
         duration_to_use = audio_duration
 
         if video_duration > 0 and video_duration < audio_duration:
-            speed = audio_duration / video_duration
-            if speed > 1.05:
-                audio_filter = f"[1:a]atempo={speed}[a_adj];"
-                audio_map = "[a_adj]"
-                duration_to_use = video_duration
-                logger.info(f"⚡ Adjusting audio speed: {speed:.2f}x")
+            ratio = audio_duration / video_duration
+            if ratio > 1.05:
+                # Freeze last frame to extend video to match audio duration
+                # (preserves natural narration speed + video quality)
+                logger.info(f"🧊 Extending video with freeze-frame ({video_duration:.1f}s → {audio_duration:.1f}s)")
 
-        # Video filter
+        # Video filter — apply freeze-frame extension via tpad if needed
+        tpad_filter = ""
+        if video_duration > 0 and audio_duration > video_duration * 1.05:
+            freeze_duration = audio_duration - video_duration
+            tpad_filter = f"tpad=stop_mode=clone:stop_duration={freeze_duration:.2f},"
+
         filter_complex = (
             f"{audio_filter}[0:v]"
-            f"fps={fps},setpts=N/({fps}*TB),"
+            f"fps={fps},{tpad_filter}"
             f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
             f"crop={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2,"
             f"fps={fps},setpts=N/({fps}*TB)[v]"
@@ -1609,6 +1613,8 @@ async def main():
                         help="AI-powered visual quality analysis of all scene videos (uses Gemini 3 Flash)")
     parser.add_argument("--generate-thumbnails", action="store_true",
                         help="Generate 3 A/B test thumbnails + titles for project, intro, and shorts")
+    parser.add_argument("--render-curation-shorts", action="store_true",
+                        help="Render ch00 curation shorts (uses shorts_script.json + assets_shorts/)")
 
     args = parser.parse_args()
 
@@ -2141,6 +2147,128 @@ async def main():
         logger.info(f"\n📊 ═══ Visual QA Summary ═══")
         logger.info(f"✅ PASS: {total_pass}  ⚠️ WARN: {total_warn}  ❌ FAIL: {total_fail}")
         logger.info(f"📄 Report saved: {report_path}")
+        return
+
+    # --- Project: Render Curation Shorts (ch00) ---
+    if args.project and getattr(args, 'render_curation_shorts', False):
+        proj = ProjectManager(args.project)
+        ch = proj.get_chapter(0)
+        if not ch:
+            logger.error("❌ Chapter 0 (introduction) not found in project")
+            return
+
+        cpm = proj.get_chapter_pm(0)
+        style = proj.project_data.get("style_preset", "pixar_disney")
+
+        # Load shorts_script.json
+        shorts_script_path = os.path.join(cpm.root, "shorts_script.json")
+        if not os.path.exists(shorts_script_path):
+            logger.error(f"❌ shorts_script.json not found: {shorts_script_path}")
+            return
+
+        with open(shorts_script_path, "r", encoding="utf-8") as f:
+            shorts_script = json.load(f)
+
+        shorts_scenes = shorts_script.get("scenes", [])
+        if not shorts_scenes:
+            logger.error("❌ No scenes found in shorts_script.json")
+            return
+
+        logger.info(f"📐 ═══ Curation Shorts Rendering (9:16) ═══")
+        logger.info(f"   Scenes: {len(shorts_scenes)} (from shorts_script.json)")
+
+        # Load asset_mapping.json for audio routing
+        assets_shorts_dir = os.path.join(cpm.root, "assets_shorts")
+        mapping_path = os.path.join(assets_shorts_dir, "asset_mapping.json")
+        asset_mapping = {}
+        if os.path.exists(mapping_path):
+            with open(mapping_path, "r", encoding="utf-8") as f:
+                asset_mapping = json.load(f).get("scenes", {})
+
+        # Create orchestrator in shorts mode
+        orchestrator = BibleOrchestrator(
+            run_id=proj.pm.slug,
+            style_preset=style,
+            path_manager=cpm,
+        )
+        orchestrator.shorts_mode = True
+        orchestrator.scenes = shorts_scenes
+
+        # Normalize scene files in scenes_shorts/
+        orchestrator.normalize_scene_files()
+
+        # Check scene videos
+        check = orchestrator.check_scene_videos()
+        if check["missing"]:
+            logger.error(f"❌ Missing scene videos: {check['missing']}")
+            return
+
+        # Render each scene
+        os.makedirs(cpm.clips_shorts, exist_ok=True)
+        total = len(shorts_scenes)
+        success = 0
+
+        for scene in shorts_scenes:
+            sid = scene["id"]
+            mapping_key = str(sid)
+            mapping_entry = asset_mapping.get(mapping_key, {})
+
+            # Determine audio priority from mapping
+            has_tts = mapping_entry.get("has_tts", True)
+            if not has_tts:
+                scene["audio_priority"] = "veo"
+            else:
+                scene["audio_priority"] = "tts"
+
+            # Create symlinks/copies for audio from assets_shorts/ to the expected paths
+            mp3_name = mapping_entry.get("mp3", f"shorts_audio_{sid:03d}.mp3")
+            vtt_name = mapping_entry.get("vtt", f"shorts_audio_{sid:03d}.vtt")
+            src_mp3 = os.path.join(assets_shorts_dir, mp3_name)
+            src_vtt = os.path.join(assets_shorts_dir, vtt_name)
+
+            # Temporarily redirect pm audio/vtt paths by placing files where render_scene expects them
+            dst_mp3 = cpm.get_audio_path(sid)
+            dst_vtt = cpm.get_vtt_path(sid)
+
+            # Backup original assets if they exist and differ
+            mp3_backup = dst_mp3 + ".bak"
+            vtt_backup = dst_vtt + ".bak"
+            restored_list = []
+
+            if os.path.exists(dst_mp3) and os.path.realpath(dst_mp3) != os.path.realpath(src_mp3):
+                shutil.copy2(dst_mp3, mp3_backup)
+                restored_list.append((mp3_backup, dst_mp3))
+            if os.path.exists(dst_vtt) and os.path.realpath(dst_vtt) != os.path.realpath(src_vtt):
+                shutil.copy2(dst_vtt, vtt_backup)
+                restored_list.append((vtt_backup, dst_vtt))
+
+            # Copy shorts assets to standard paths
+            if os.path.exists(src_mp3):
+                shutil.copy2(src_mp3, dst_mp3)
+            if os.path.exists(src_vtt):
+                shutil.copy2(src_vtt, dst_vtt)
+
+            # Render
+            if orchestrator.render_scene(sid):
+                success += 1
+
+            # Restore original assets
+            for bak, orig in restored_list:
+                if os.path.exists(bak):
+                    shutil.move(bak, orig)
+
+        logger.info(f"✅ Curation shorts rendering: {success}/{total} clips")
+
+        if success == total:
+            # Merge clips
+            output = orchestrator.merge_clips()
+            if output:
+                logger.info(f"🎬 Curation shorts video: {output}")
+            else:
+                logger.error("❌ Merge failed")
+        else:
+            logger.error(f"❌ {total - success} scenes failed to render")
+
         return
 
     # --- Project: Merge all chapters ---
